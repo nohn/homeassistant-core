@@ -11,6 +11,7 @@ from aiounifi.interfaces.api_handlers import ItemEvent
 from aiounifi.models.message import MessageKey
 import pytest
 
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.components.unifi.const import CONF_BLOCK_CLIENT, DOMAIN
 from homeassistant.components.unifi.coordinator import IDLE_POLL_INTERVAL, POLL_INTERVAL
 from homeassistant.components.unifi.errors import AuthenticationRequired, CannotConnect
@@ -541,3 +542,46 @@ async def test_get_unifi_api_fails_to_connect(
         pytest.raises(raised_exception),
     ):
         await get_unifi_api(hass, config_entry_data)
+
+
+async def test_site_id_migration(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    config_entry_factory: ConfigEntryFactoryType,
+    config_entry: MockConfigEntry,
+    site_payload: list[dict[str, Any]],
+) -> None:
+    """UniFi Network 11 migrated site IDs from ObjectId to UUID."""
+    device_entry_hub = device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(DOMAIN, "242424242424242424242424")},
+    )
+    device_entry_outlet = device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(SWITCH_DOMAIN, "242424242424242424242424")},
+    )
+
+    hass.config_entries.async_update_entry(
+        config_entry, unique_id="242424242424242424242424"
+    )
+    site_payload.clear()
+    site_payload.append(
+        {
+            "_id": "67890123-4567-8901-2345-678901234567",
+            "desc": "Site name",
+            "name": "site_id",
+            "role": "admin",
+        }
+    )
+
+    await config_entry_factory()
+
+    assert config_entry.unique_id == "67890123-4567-8901-2345-678901234567"
+    assert (
+        DOMAIN,
+        "67890123-4567-8901-2345-678901234567",
+    ) in device_registry.async_get(device_entry_hub.id).identifiers
+    assert (
+        SWITCH_DOMAIN,
+        "67890123-4567-8901-2345-678901234567",
+    ) in device_registry.async_get(device_entry_outlet.id).identifiers

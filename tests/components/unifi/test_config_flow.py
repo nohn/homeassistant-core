@@ -471,6 +471,55 @@ async def test_abort_reconfigure_flow_on_site_id_mismatch(
     assert config_entry.data[CONF_SITE_ID] == "site_id"
 
 
+@pytest.mark.parametrize(
+    "site_payload",
+    [
+        [
+            {
+                "name": "site_id",
+                "role": "admin",
+                "desc": "Site name",
+                "_id": "67890123-4567-8901-2345-678901234567",
+            },
+        ]
+    ],
+)
+async def test_reconfigure_flow_recovers_changed_site_id(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_requests: Callable[[str, str], None],
+) -> None:
+    """Verify reconfigure flow updates site unique ID when original ID has changed."""
+    mock_requests(config_entry.data[CONF_HOST], config_entry.data[CONF_SITE_ID])
+
+    hass.config_entries.async_update_entry(
+        config_entry, unique_id="242424242424242424242424"
+    )
+
+    result = await config_entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_HOST: "1.2.3.4",
+            CONF_USERNAME: "new_name",
+            CONF_PASSWORD: "new_pass",
+            CONF_PORT: 1234,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.unique_id == "67890123-4567-8901-2345-678901234567"
+    assert config_entry.data[CONF_HOST] == "1.2.3.4"
+    assert config_entry.data[CONF_USERNAME] == "new_name"
+    assert config_entry.data[CONF_PASSWORD] == "new_pass"
+
+
 @pytest.mark.parametrize("client_payload", [CLIENTS])
 @pytest.mark.parametrize("device_payload", [DEVICES])
 @pytest.mark.parametrize("wlan_payload", [WLANS])
